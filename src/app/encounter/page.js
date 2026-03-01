@@ -269,7 +269,7 @@ export default function EncounterPage() {
 
           {/* Camera phase instructions */}
           {phase === "camera" && !identifyError && (
-            <div className="text-center py-8">
+            <div className="text-center py-8 pointer-events-none">
               <p className="text-stone-400 text-sm">
                 Point your camera at a plant, tree, bird, insect, or mushroom
               </p>

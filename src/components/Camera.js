@@ -101,7 +101,7 @@ export default function Camera({ onCapture, disabled }) {
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Camera controls overlay */}
-      <div className="absolute bottom-6 left-0 right-0 flex items-center justify-center gap-6">
+      <div className="absolute bottom-6 left-0 right-0 z-20 flex items-center justify-center gap-6">
         {/* Flip camera button */}
         <button
           onClick={toggleCamera}
