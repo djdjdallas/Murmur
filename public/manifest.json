@@ -1,0 +1,10 @@
+{
+  "name": "Murmur — Nature Speaks",
+  "short_name": "Murmur",
+  "description": "Point your camera at any organism and hear it tell its story",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0a09",
+  "theme_color": "#0c0a09",
+  "icons": []
+}
