@@ -38,17 +38,21 @@ export default function NarrativePlayer({
   const [activeMode, setActiveMode] = useState("trail");
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState(null);
-  const [useLiveApi, setUseLiveApi] = useState(false);
+  const [useLiveApi, setUseLiveApi] = useState(true);
   const [speaking, setSpeaking] = useState(false);
+  const [hasAutoStarted, setHasAutoStarted] = useState(false);
   const utteranceRef = useRef(null);
 
   const {
     connect,
     sendMessage,
+    startListening,
+    stopListening,
     disconnect,
     stopAudio,
     isConnected,
     isPlaying,
+    isListening,
     error: liveConnectionError,
     transcript,
   } = useGeminiLive();
@@ -62,11 +66,17 @@ export default function NarrativePlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-start narration via Gemini Live when organism is available
+  useEffect(() => {
+    if (organism && useLiveApi && !hasAutoStarted) {
+      setHasAutoStarted(true);
+      handleLiveNarrate("trail");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organism, useLiveApi, hasAutoStarted]);
+
   /**
    * Start a Live API narration session.
-   * 1. Fetch API key + config from our server
-   * 2. Connect WebSocket with character prompt
-   * 3. Send the narration request
    */
   const handleLiveNarrate = useCallback(
     async (mode) => {
@@ -76,7 +86,6 @@ export default function NarrativePlayer({
       setLiveError(null);
 
       try {
-        // Get token + config from server
         const tokenRes = await fetch("/api/live-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -91,7 +100,6 @@ export default function NarrativePlayer({
           mode
         );
 
-        // Build the system prompt for the live session
         const systemPrompt = `You are a ${organism.commonName} (${organism.scientificName}).
 Category: ${organism.category}
 Habitat: ${organism.habitat}
@@ -104,9 +112,10 @@ ${modePrompt}
 Speak in first person as this organism. Be vivid, personal, and memorable.
 Begin speaking directly — no introduction like "I am a..." — just launch into your story naturally.
 Keep the narration between 150-250 words.
-End with a line that makes the listener want to look more closely at you.`;
+End with a line that makes the listener want to look more closely at you.
 
-        // Connect to Live API if not already connected
+IMPORTANT: You are having a live conversation. After your initial narration, the human may ask you follow-up questions. Stay in character and answer naturally as this organism would. Keep follow-up answers concise (2-4 sentences).`;
+
         if (!isConnected) {
           await connect(systemPrompt, {
             apiKey: tokenData.apiKey,
@@ -115,7 +124,6 @@ End with a line that makes the listener want to look more closely at you.`;
           });
         }
 
-        // Send narration request
         const userMessage = `Tell me your story in the style of a ${tone}. You are a ${organism.commonName} found in ${organism.habitat}.`;
         sendMessage(userMessage);
 
@@ -135,23 +143,37 @@ End with a line that makes the listener want to look more closely at you.`;
 
   const handleModeSelect = useCallback(
     async (mode) => {
-      // Stop any current audio
       stopAudio();
+      stopListening();
       window.speechSynthesis?.cancel();
       setSpeaking(false);
 
       setActiveMode(mode);
 
       if (useLiveApi) {
-        handleLiveNarrate(mode);
+        // Disconnect and reconnect with new persona
+        disconnect();
+        setHasAutoStarted(false);
+        setTimeout(() => handleLiveNarrate(mode), 100);
       } else {
         onNarrate?.(mode);
       }
     },
-    [useLiveApi, handleLiveNarrate, onNarrate, stopAudio]
+    [useLiveApi, handleLiveNarrate, onNarrate, stopAudio, stopListening, disconnect]
   );
 
-  // Fallback: Web Speech API for when Live API isn't available
+  /**
+   * Toggle microphone for interactive conversation
+   */
+  const handleTalkToggle = useCallback(() => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  }, [isListening, startListening, stopListening]);
+
+  // Fallback: Web Speech API
   const speak = useCallback(
     (text) => {
       if (!("speechSynthesis" in window)) return;
@@ -160,14 +182,17 @@ End with a line that makes the listener want to look more closely at you.`;
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.pitch = voiceProfile?.voicePitch || 1;
-      utterance.rate = voiceProfile?.voiceRate || 1;
+      utterance.rate = voiceProfile?.voiceRate || 0.95;
       utterance.volume = 1;
 
       const voices = window.speechSynthesis.getVoices();
-      const englishVoice = voices.find(
-        (v) => v.lang.startsWith("en") && v.localService
-      );
-      if (englishVoice) utterance.voice = englishVoice;
+      // Prefer high-quality voices on iOS/macOS
+      const preferredVoice =
+        voices.find((v) => v.name === "Samantha" && v.lang.startsWith("en")) ||
+        voices.find((v) => v.name === "Daniel" && v.lang.startsWith("en")) ||
+        voices.find((v) => v.lang.startsWith("en") && v.localService) ||
+        voices.find((v) => v.lang.startsWith("en"));
+      if (preferredVoice) utterance.voice = preferredVoice;
 
       utterance.onstart = () => setSpeaking(true);
       utterance.onend = () => setSpeaking(false);
@@ -183,7 +208,8 @@ End with a line that makes the listener want to look more closely at you.`;
     window.speechSynthesis?.cancel();
     setSpeaking(false);
     stopAudio();
-  }, [stopAudio]);
+    stopListening();
+  }, [stopAudio, stopListening]);
 
   const isAudioActive = isPlaying || speaking;
   const isLoading = loading || liveLoading;
@@ -196,6 +222,7 @@ End with a line that makes the listener want to look more closely at you.`;
         <button
           onClick={() => {
             disconnect();
+            setHasAutoStarted(false);
             setUseLiveApi(!useLiveApi);
           }}
           className={`text-xs px-3 py-1 rounded-full border transition-colors ${
@@ -212,12 +239,14 @@ End with a line that makes the listener want to look more closely at you.`;
       {useLiveApi && isConnected && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
           <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-          <span className="text-xs text-emerald-400">Live session active</span>
+          <span className="text-xs text-emerald-400">
+            Live session active — ask questions!
+          </span>
           <button
             onClick={disconnect}
             className="ml-auto text-xs text-stone-500 hover:text-stone-300"
           >
-            Disconnect
+            End
           </button>
         </div>
       )}
@@ -268,34 +297,78 @@ End with a line that makes the listener want to look more closely at you.`;
         </div>
       )}
 
-      {/* Live audio playback indicator */}
-      {useLiveApi && isPlaying && !isLoading && (
+      {/* Live audio playback + conversation controls */}
+      {useLiveApi && (isPlaying || isConnected) && !isLoading && (
         <div className="space-y-3">
-          <div className="flex items-center gap-3 p-4 bg-stone-800/50 rounded-xl border border-emerald-500/20">
-            {/* Audio visualizer bars */}
-            <div className="flex items-center gap-0.5">
-              {[...Array(5)].map((_, i) => (
-                <div
-                  key={i}
-                  className="w-1 bg-emerald-400 rounded-full animate-pulse"
-                  style={{
-                    height: `${12 + Math.random() * 16}px`,
-                    animationDelay: `${i * 0.15}s`,
-                    animationDuration: `${0.4 + Math.random() * 0.3}s`,
-                  }}
-                />
-              ))}
+          {/* Playing indicator */}
+          {isPlaying && (
+            <div className="flex items-center gap-3 p-4 bg-stone-800/50 rounded-xl border border-emerald-500/20">
+              <div className="flex items-center gap-0.5">
+                {[...Array(5)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-1 bg-emerald-400 rounded-full animate-pulse"
+                    style={{
+                      height: `${12 + Math.random() * 16}px`,
+                      animationDelay: `${i * 0.15}s`,
+                      animationDuration: `${0.4 + Math.random() * 0.3}s`,
+                    }}
+                  />
+                ))}
+              </div>
+              <span className="text-sm text-emerald-400 flex-1">
+                {organism?.commonName} is speaking...
+              </span>
+              <button
+                onClick={stopSpeaking}
+                className="px-3 py-1.5 text-xs bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/20 transition-colors"
+              >
+                Stop
+              </button>
             </div>
-            <span className="text-sm text-emerald-400 flex-1">
-              Narrating live...
-            </span>
+          )}
+
+          {/* Interactive talk button */}
+          {isConnected && !isPlaying && (
             <button
-              onClick={stopSpeaking}
-              className="px-3 py-1.5 text-xs bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/20 transition-colors"
+              onClick={handleTalkToggle}
+              className={`w-full flex items-center justify-center gap-3 p-4 rounded-xl border transition-all ${
+                isListening
+                  ? "bg-red-500/10 border-red-500/40 text-red-400 animate-pulse"
+                  : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+              }`}
             >
-              Stop
+              {isListening ? (
+                <>
+                  <div className="w-3 h-3 bg-red-400 rounded-full animate-pulse" />
+                  <span className="text-sm font-medium">
+                    Listening... Tap to stop
+                  </span>
+                </>
+              ) : (
+                <>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="22" />
+                  </svg>
+                  <span className="text-sm font-medium">
+                    Ask {organism?.commonName} a question
+                  </span>
+                </>
+              )}
             </button>
-          </div>
+          )}
 
           {/* Live transcript */}
           {transcript && (
@@ -365,10 +438,7 @@ End with a line that makes the listener want to look more closely at you.`;
 
       {/* Story panels — shown for both Live and fallback modes */}
       {(script || (useLiveApi && transcript.length > 50)) && organism && (
-        <StoryPanels
-          organism={organism}
-          script={script || transcript}
-        />
+        <StoryPanels organism={organism} script={script || transcript} />
       )}
     </div>
   );

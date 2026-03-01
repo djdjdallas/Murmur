@@ -68,25 +68,8 @@ export default function EncounterPage() {
           ]);
         }
 
-        // Auto-start narration with "trail" mode to reduce friction
+        // NarrativePlayer auto-starts narration via Gemini Live
         setPhase("narrating");
-        setNarrateLoading(true);
-        try {
-          const narrateRes = await fetch("/api/narrate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ organism: data.organism, mode: "trail" }),
-          });
-          const narrateData = await narrateRes.json();
-          if (narrateRes.ok) {
-            setScript(narrateData.script);
-            setVoiceProfile(narrateData.persona);
-          }
-        } catch (narrateErr) {
-          console.error("Auto-narration failed:", narrateErr);
-        } finally {
-          setNarrateLoading(false);
-        }
       } catch (err) {
         console.error("Identification failed:", err);
         setIdentifyError(

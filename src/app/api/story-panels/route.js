@@ -56,10 +56,9 @@ Example format:
       ];
     }
 
-    // Generate images using Imagen 3 via the gemini-2.0-flash model
-    // with image generation enabled
+    // Generate images using native image generation via gemini-2.0-flash-exp
     const imagenModel = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.0-flash-exp",
       generationConfig: {
         responseModalities: ["TEXT", "IMAGE"],
       },

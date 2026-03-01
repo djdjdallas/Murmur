@@ -3,54 +3,79 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 
 /**
- * React hook for managing a Gemini Live API WebSocket session.
+ * React hook for managing an interactive Gemini Live API session.
  *
- * Connects from the browser to the Gemini Live API, sends text prompts,
- * and plays back streamed audio using the Web Audio API.
+ * Supports bidirectional audio:
+ *  - AI → User: streams audio responses via Web Audio API
+ *  - User → AI: captures microphone input and sends PCM chunks
  *
- * Supports Trail Mode: the session stays open so new prompts can be sent
- * without re-establishing the connection.
+ * Push-to-talk: call startListening() to begin mic capture,
+ * stopListening() to stop. The model responds after each turn.
  */
 export function useGeminiLive() {
   const wsRef = useRef(null);
-  const audioContextRef = useRef(null);
+
+  // Playback refs
+  const playbackCtxRef = useRef(null);
   const audioQueueRef = useRef([]);
   const isPlayingRef = useRef(false);
   const nextPlayTimeRef = useRef(0);
 
+  // Mic refs
+  const micStreamRef = useRef(null);
+  const micCtxRef = useRef(null);
+  const micProcessorRef = useRef(null);
+  const micSourceRef = useRef(null);
+  const micGainRef = useRef(null);
+
   const [isConnected, setIsConnected] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState(null);
   const [transcript, setTranscript] = useState("");
 
   // Clean up on unmount
   useEffect(() => {
     return () => {
-      disconnect();
+      cleanupMic();
+      cleanupPlayback();
+      if (wsRef.current) {
+        wsRef.current.close(1000, "Unmount");
+        wsRef.current = null;
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /**
-   * Drain the audio queue: schedule PCM chunks as AudioBufferSourceNodes
-   * so they play back-to-back without gaps.
-   */
+  // --- Playback ---
+
+  function getPlaybackContext() {
+    if (!playbackCtxRef.current || playbackCtxRef.current.state === "closed") {
+      playbackCtxRef.current = new (window.AudioContext ||
+        window.webkitAudioContext)({ sampleRate: 24000 });
+    }
+    if (playbackCtxRef.current.state === "suspended") {
+      playbackCtxRef.current.resume();
+    }
+    return playbackCtxRef.current;
+  }
+
   const drainAudioQueue = useCallback(() => {
-    const ctx = audioContextRef.current;
+    const ctx = playbackCtxRef.current;
     if (!ctx || ctx.state === "closed") return;
 
     while (audioQueueRef.current.length > 0) {
       const pcmData = audioQueueRef.current.shift();
-
-      // Gemini Live returns 16-bit PCM at 24 kHz mono
-      const sampleRate = 24000;
       const float32 = new Float32Array(pcmData.length / 2);
-      const view = new DataView(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength);
+      const view = new DataView(
+        pcmData.buffer,
+        pcmData.byteOffset,
+        pcmData.byteLength
+      );
       for (let i = 0; i < float32.length; i++) {
         float32[i] = view.getInt16(i * 2, true) / 32768;
       }
 
-      const audioBuffer = ctx.createBuffer(1, float32.length, sampleRate);
+      const audioBuffer = ctx.createBuffer(1, float32.length, 24000);
       audioBuffer.getChannelData(0).set(float32);
 
       const source = ctx.createBufferSource();
@@ -63,7 +88,6 @@ export function useGeminiLive() {
       nextPlayTimeRef.current = startTime + audioBuffer.duration;
 
       source.onended = () => {
-        // If this was the last queued chunk, mark playback done
         if (
           audioQueueRef.current.length === 0 &&
           ctx.currentTime >= nextPlayTimeRef.current - 0.05
@@ -75,22 +99,10 @@ export function useGeminiLive() {
     }
   }, []);
 
-  /**
-   * Process an incoming audio chunk (base64-encoded PCM).
-   */
   const handleAudioChunk = useCallback(
     (base64Data) => {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext ||
-          window.webkitAudioContext)({ sampleRate: 24000 });
-      }
+      getPlaybackContext();
 
-      // Resume context if suspended (mobile browsers require user gesture)
-      if (audioContextRef.current.state === "suspended") {
-        audioContextRef.current.resume();
-      }
-
-      // Decode base64 → Uint8Array
       const binaryString = atob(base64Data);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
@@ -109,22 +121,155 @@ export function useGeminiLive() {
     [drainAudioQueue]
   );
 
+  function cleanupPlayback() {
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    nextPlayTimeRef.current = 0;
+    setIsPlaying(false);
+    if (
+      playbackCtxRef.current &&
+      playbackCtxRef.current.state !== "closed"
+    ) {
+      playbackCtxRef.current.close().catch(() => {});
+      playbackCtxRef.current = null;
+    }
+  }
+
+  // --- Microphone ---
+
+  function cleanupMic() {
+    if (micProcessorRef.current) {
+      micProcessorRef.current.disconnect();
+      micProcessorRef.current = null;
+    }
+    if (micSourceRef.current) {
+      micSourceRef.current.disconnect();
+      micSourceRef.current = null;
+    }
+    if (micGainRef.current) {
+      micGainRef.current.disconnect();
+      micGainRef.current = null;
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((t) => t.stop());
+      micStreamRef.current = null;
+    }
+    if (micCtxRef.current && micCtxRef.current.state !== "closed") {
+      micCtxRef.current.close().catch(() => {});
+      micCtxRef.current = null;
+    }
+    setIsListening(false);
+  }
+
   /**
-   * Open a WebSocket to the Gemini Live API.
-   *
-   * @param {string} systemPrompt - The character persona / system instruction
-   * @param {object} options - { apiKey, model, voiceName }
+   * Start capturing microphone audio and streaming to the Live API.
+   * Stops any current AI audio playback to avoid echo.
    */
+  const startListening = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setError("Not connected to Live API");
+      return;
+    }
+
+    // Stop current playback to avoid echo
+    stopAudio();
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      micStreamRef.current = stream;
+
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      micCtxRef.current = ctx;
+
+      if (ctx.state === "suspended") await ctx.resume();
+
+      const source = ctx.createMediaStreamSource(stream);
+      micSourceRef.current = source;
+
+      // ScriptProcessor needs to be connected to output to fire events,
+      // but we silence it to prevent mic→speaker feedback
+      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      micProcessorRef.current = processor;
+
+      const silentGain = ctx.createGain();
+      silentGain.gain.value = 0;
+      micGainRef.current = silentGain;
+
+      const sampleRate = ctx.sampleRate;
+
+      processor.onaudioprocess = (e) => {
+        const currentWs = wsRef.current;
+        if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
+
+        const float32 = e.inputBuffer.getChannelData(0);
+        const int16 = new Int16Array(float32.length);
+        for (let i = 0; i < float32.length; i++) {
+          const s = Math.max(-1, Math.min(1, float32[i]));
+          int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+
+        // Convert to base64
+        const bytes = new Uint8Array(int16.buffer);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64 = btoa(binary);
+
+        currentWs.send(
+          JSON.stringify({
+            realtimeInput: {
+              mediaChunks: [
+                {
+                  mimeType: `audio/pcm;rate=${sampleRate}`,
+                  data: base64,
+                },
+              ],
+            },
+          })
+        );
+      };
+
+      source.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(ctx.destination);
+
+      setIsListening(true);
+      setTranscript("");
+    } catch (err) {
+      console.error("Microphone error:", err);
+      setError(
+        err.name === "NotAllowedError"
+          ? "Microphone access denied"
+          : "Could not access microphone"
+      );
+    }
+  }, []);
+
+  /**
+   * Stop microphone capture. The model will process and respond.
+   */
+  const stopListening = useCallback(() => {
+    cleanupMic();
+  }, []);
+
+  // --- WebSocket ---
+
   const connect = useCallback(
     async (systemPrompt, { apiKey, model, voiceName } = {}) => {
       if (wsRef.current) {
-        disconnect();
+        wsRef.current.close(1000, "Reconnect");
+        wsRef.current = null;
       }
 
       setError(null);
       setTranscript("");
+      setIsConnected(false);
 
-      const modelId = model || "gemini-2.0-flash-live-001";
+      const modelId = model || "gemini-2.0-flash-exp";
       const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
       return new Promise((resolve, reject) => {
@@ -132,44 +277,40 @@ export function useGeminiLive() {
         wsRef.current = ws;
 
         ws.onopen = () => {
-          // Send setup message
-          const setupMessage = {
-            setup: {
-              model: `models/${modelId}`,
-              generationConfig: {
-                responseModalities: ["AUDIO"],
-                speechConfig: {
-                  voiceConfig: {
-                    prebuiltVoiceConfig: {
-                      voiceName: voiceName || "Orus",
+          ws.send(
+            JSON.stringify({
+              setup: {
+                model: `models/${modelId}`,
+                generationConfig: {
+                  responseModalities: ["AUDIO"],
+                  speechConfig: {
+                    voiceConfig: {
+                      prebuiltVoiceConfig: {
+                        voiceName: voiceName || "Kore",
+                      },
                     },
                   },
                 },
+                systemInstruction: {
+                  parts: [{ text: systemPrompt }],
+                },
               },
-              systemInstruction: {
-                parts: [{ text: systemPrompt }],
-              },
-            },
-          };
-
-          ws.send(JSON.stringify(setupMessage));
+            })
+          );
         };
 
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
 
-            // Setup complete
             if (msg.setupComplete) {
               setIsConnected(true);
               resolve();
               return;
             }
 
-            // Server content (audio or text)
             if (msg.serverContent) {
-              const parts =
-                msg.serverContent.modelTurn?.parts || [];
+              const parts = msg.serverContent.modelTurn?.parts || [];
 
               for (const part of parts) {
                 if (part.inlineData?.data) {
@@ -180,17 +321,11 @@ export function useGeminiLive() {
                 }
               }
 
-              // Output transcription (if enabled)
               if (msg.serverContent.outputTranscription?.text) {
                 setTranscript(
                   (prev) =>
                     prev + msg.serverContent.outputTranscription.text
                 );
-              }
-
-              // Turn complete
-              if (msg.serverContent.turnComplete) {
-                // Audio will finish playing from the queue
               }
             }
           } catch (e) {
@@ -198,8 +333,8 @@ export function useGeminiLive() {
           }
         };
 
-        ws.onerror = (event) => {
-          console.error("Live WebSocket error:", event);
+        ws.onerror = () => {
+          console.error("Live WebSocket error");
           setError("Connection error");
           setIsConnected(false);
           reject(new Error("WebSocket connection failed"));
@@ -217,10 +352,6 @@ export function useGeminiLive() {
     [handleAudioChunk]
   );
 
-  /**
-   * Send a text message to the live session.
-   * The model will respond with streaming audio.
-   */
   const sendMessage = useCallback((text) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -228,71 +359,56 @@ export function useGeminiLive() {
       return;
     }
 
-    // Reset audio state for new response
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     setIsPlaying(false);
     setTranscript("");
     nextPlayTimeRef.current = 0;
 
-    const message = {
-      clientContent: {
-        turns: [
-          {
-            role: "user",
-            parts: [{ text }],
-          },
-        ],
-        turnComplete: true,
-      },
-    };
-
-    ws.send(JSON.stringify(message));
+    ws.send(
+      JSON.stringify({
+        clientContent: {
+          turns: [{ role: "user", parts: [{ text }] }],
+          turnComplete: true,
+        },
+      })
+    );
   }, []);
 
-  /**
-   * Close the WebSocket and clean up audio resources.
-   */
   const disconnect = useCallback(() => {
+    cleanupMic();
     if (wsRef.current) {
       wsRef.current.close(1000, "Client disconnect");
       wsRef.current = null;
     }
     setIsConnected(false);
-    setIsPlaying(false);
-    isPlayingRef.current = false;
-    audioQueueRef.current = [];
-    nextPlayTimeRef.current = 0;
-
-    if (audioContextRef.current && audioContextRef.current.state !== "closed") {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
+    cleanupPlayback();
   }, []);
 
-  /**
-   * Stop current audio playback without disconnecting.
-   */
   const stopAudio = useCallback(() => {
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     nextPlayTimeRef.current = 0;
     setIsPlaying(false);
-
-    // Close and recreate audio context to stop all scheduled sources
-    if (audioContextRef.current && audioContextRef.current.state !== "closed") {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
+    if (
+      playbackCtxRef.current &&
+      playbackCtxRef.current.state !== "closed"
+    ) {
+      playbackCtxRef.current.close().catch(() => {});
+      playbackCtxRef.current = null;
     }
   }, []);
 
   return {
     connect,
     sendMessage,
+    startListening,
+    stopListening,
     disconnect,
     stopAudio,
     isConnected,
     isPlaying,
+    isListening,
     error,
     transcript,
   };
