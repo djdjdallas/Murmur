@@ -118,7 +118,7 @@ IMPORTANT: You are having a live conversation. After your initial narration, the
 
         if (!isConnected) {
           await connect(systemPrompt, {
-            apiKey: tokenData.apiKey,
+            token: tokenData.token,
             model: tokenData.model,
             voiceName: tokenData.voiceName,
           });

@@ -1,18 +1,11 @@
 import { NextResponse } from "next/server";
+import { GoogleGenAI } from "@google/genai";
 import { getPersona } from "@/lib/personas";
 
 /**
- * Returns the API key and config needed for the client to open a
- * Gemini Live WebSocket.  The key is kept server-side so it never
- * leaks into the client bundle.
- *
- * The client calls this once before opening a session, receives a
- * short-lived "token" payload, then connects directly to the Live API
- * WebSocket from the browser.
- *
- * NOTE: In production you would use a proper ephemeral token /
- * OAuth exchange.  For this hackathon MVP we pass the raw API key
- * over HTTPS to our own frontend — acceptable for a demo.
+ * Generates an ephemeral token for the client to open a Gemini Live
+ * WebSocket session. Ephemeral tokens are short-lived and safe to
+ * expose to the browser — the real API key never leaves the server.
  */
 export async function POST(request) {
   try {
@@ -26,23 +19,38 @@ export async function POST(request) {
 
     const { organism, mode = "trail" } = await request.json();
 
+    // Generate an ephemeral token (valid for 30 minutes, single use)
+    const client = new GoogleGenAI({
+      apiKey,
+      httpOptions: { apiVersion: "v1beta" },
+    });
+
+    const token = await client.authTokens.create({
+      config: {
+        uses: 1,
+        expireTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        newSessionExpireTime: new Date(
+          Date.now() + 2 * 60 * 1000
+        ).toISOString(),
+      },
+    });
+
     // Build the voice name from the organism category
     const persona = getPersona(organism?.category);
 
-    // Map persona temperaments to Gemini prebuilt voice names
     const voiceMap = {
-      tree: "Orus",       // deep, warm
-      bird: "Puck",       // bright, energetic
-      flower: "Aoede",    // gentle, lyrical
-      insect: "Kore",     // quick, precise
-      mushroom: "Charon",  // mysterious, low
+      tree: "Orus", // deep, warm
+      bird: "Puck", // bright, energetic
+      flower: "Aoede", // gentle, lyrical
+      insect: "Kore", // quick, precise
+      mushroom: "Charon", // mysterious, low
     };
 
     const category = organism?.category?.toLowerCase() || "tree";
     const voiceName = voiceMap[category] || "Orus";
 
     return NextResponse.json({
-      apiKey,
+      token: token.name,
       model: "gemini-2.5-flash-native-audio-preview-12-2025",
       voiceName,
       persona: {
@@ -53,7 +61,7 @@ export async function POST(request) {
   } catch (error) {
     console.error("Live token error:", error);
     return NextResponse.json(
-      { error: "Failed to generate live session config" },
+      { error: "Failed to generate live session token: " + error.message },
       { status: 500 }
     );
   }

@@ -259,7 +259,7 @@ export function useGeminiLive() {
   // --- WebSocket ---
 
   const connect = useCallback(
-    async (systemPrompt, { apiKey, model, voiceName } = {}) => {
+    async (systemPrompt, { token, apiKey, model, voiceName } = {}) => {
       if (wsRef.current) {
         wsRef.current.close(1000, "Reconnect");
         wsRef.current = null;
@@ -270,7 +270,11 @@ export function useGeminiLive() {
       setIsConnected(false);
 
       const modelId = model || "gemini-2.5-flash-native-audio-preview-12-2025";
-      const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+      // Use ephemeral token (preferred) or fall back to API key
+      const authParam = token
+        ? `access_token=${token}`
+        : `key=${apiKey}`;
+      const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?${authParam}`;
 
       return new Promise((resolve, reject) => {
         const ws = new WebSocket(wsUrl);
