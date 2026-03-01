@@ -15,43 +15,71 @@ export default function EncounterPage() {
   const [voiceProfile, setVoiceProfile] = useState(null);
   const [narrateLoading, setNarrateLoading] = useState(false);
 
-  const handleCapture = useCallback(async (imageBase64) => {
-    setCapturedImage(imageBase64);
-    setPhase("identifying");
-    setIdentifyError(null);
-    setOrganism(null);
-    setScript(null);
-    setVoiceProfile(null);
+  // Trail Mode state
+  const [trailMode, setTrailMode] = useState(false);
+  const [trailHistory, setTrailHistory] = useState([]);
 
-    try {
-      const response = await fetch("/api/identify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64 }),
-      });
+  const handleCapture = useCallback(
+    async (imageBase64) => {
+      setCapturedImage(imageBase64);
+      setPhase("identifying");
+      setIdentifyError(null);
+      setScript(null);
+      setVoiceProfile(null);
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Identification failed");
+      // In trail mode, keep previous organism visible until new one is identified
+      if (!trailMode) {
+        setOrganism(null);
       }
 
-      if (!data.identified) {
+      try {
+        const response = await fetch("/api/identify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64 }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Identification failed");
+        }
+
+        if (!data.identified) {
+          setIdentifyError(
+            data.message ||
+              "Could not identify the organism. Try again with a clearer shot."
+          );
+          setPhase(trailMode ? "trail-ready" : "camera");
+          return;
+        }
+
+        setOrganism(data.organism);
+
+        // In trail mode, add to history and auto-narrate
+        if (trailMode) {
+          setTrailHistory((prev) => [
+            {
+              organism: data.organism,
+              image: imageBase64,
+              timestamp: new Date().toLocaleTimeString(),
+            },
+            ...prev,
+          ]);
+          setPhase("narrating");
+        } else {
+          setPhase("identified");
+        }
+      } catch (err) {
+        console.error("Identification failed:", err);
         setIdentifyError(
-          data.message || "Could not identify the organism. Try again with a clearer shot."
+          err.message || "Something went wrong. Please try again."
         );
-        setPhase("camera");
-        return;
+        setPhase(trailMode ? "trail-ready" : "camera");
       }
-
-      setOrganism(data.organism);
-      setPhase("identified");
-    } catch (err) {
-      console.error("Identification failed:", err);
-      setIdentifyError(err.message || "Something went wrong. Please try again.");
-      setPhase("camera");
-    }
-  }, []);
+    },
+    [trailMode]
+  );
 
   const handleNarrate = useCallback(
     async (mode) => {
@@ -92,8 +120,25 @@ export default function EncounterPage() {
     setVoiceProfile(null);
     setIdentifyError(null);
     setPhase("camera");
+    setTrailMode(false);
+    setTrailHistory([]);
     window.speechSynthesis?.cancel();
   }, []);
+
+  const handleNewCapture = useCallback(() => {
+    setCapturedImage(null);
+    setScript(null);
+    setVoiceProfile(null);
+    setIdentifyError(null);
+    setPhase(trailMode ? "trail-ready" : "camera");
+  }, [trailMode]);
+
+  const toggleTrailMode = useCallback(() => {
+    setTrailMode((prev) => !prev);
+    if (!trailMode) {
+      setPhase("trail-ready");
+    }
+  }, [trailMode]);
 
   return (
     <div className="min-h-dvh flex flex-col bg-stone-950">
@@ -119,16 +164,19 @@ export default function EncounterPage() {
         </Link>
         <div className="flex items-center gap-2">
           <span className="text-emerald-400 text-sm">🌿</span>
-          <span className="text-sm font-semibold text-stone-200">
-            Murmur
-          </span>
+          <span className="text-sm font-semibold text-stone-200">Murmur</span>
+          {trailMode && (
+            <span className="px-1.5 py-0.5 text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full">
+              TRAIL
+            </span>
+          )}
         </div>
-        {phase !== "camera" ? (
+        {phase !== "camera" && phase !== "trail-ready" ? (
           <button
-            onClick={handleReset}
+            onClick={trailMode ? handleNewCapture : handleReset}
             className="text-sm text-stone-400 hover:text-stone-200 transition-colors"
           >
-            New
+            {trailMode ? "Next" : "New"}
           </button>
         ) : (
           <div className="w-8" />
@@ -139,7 +187,7 @@ export default function EncounterPage() {
       <div className="flex-1 flex flex-col">
         {/* Camera / Image section */}
         <div className="relative aspect-[3/4] max-h-[50vh] w-full bg-stone-900">
-          {phase === "camera" ? (
+          {phase === "camera" || phase === "trail-ready" ? (
             <Camera onCapture={handleCapture} disabled={false} />
           ) : (
             <>
@@ -171,6 +219,36 @@ export default function EncounterPage() {
               )}
             </>
           )}
+
+          {/* Trail Mode toggle */}
+          {(phase === "camera" || phase === "trail-ready") && (
+            <div className="absolute top-3 right-3">
+              <button
+                onClick={toggleTrailMode}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium backdrop-blur-sm transition-all ${
+                  trailMode
+                    ? "bg-amber-500/20 border border-amber-500/40 text-amber-300"
+                    : "bg-stone-800/70 border border-stone-700/50 text-stone-400 hover:text-stone-200"
+                }`}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+                Trail Mode
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Bottom panel */}
@@ -180,7 +258,7 @@ export default function EncounterPage() {
             <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
               <p className="text-sm text-amber-400">{identifyError}</p>
               <button
-                onClick={handleReset}
+                onClick={trailMode ? handleNewCapture : handleReset}
                 className="mt-2 text-sm text-amber-300 underline underline-offset-2"
               >
                 Try again
@@ -200,6 +278,24 @@ export default function EncounterPage() {
             </div>
           )}
 
+          {/* Trail Mode ready state */}
+          {phase === "trail-ready" && !identifyError && (
+            <div className="text-center py-6 space-y-3">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                <div className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
+                <span className="text-sm text-amber-300 font-medium">
+                  Trail Mode Active
+                </span>
+              </div>
+              <p className="text-stone-400 text-sm">
+                Keep walking — capture organisms as you go.
+              </p>
+              <p className="text-stone-600 text-xs">
+                Audio narration streams live via Gemini. No waiting.
+              </p>
+            </div>
+          )}
+
           {/* Identification result */}
           {organism && (phase === "identified" || phase === "narrating") && (
             <>
@@ -207,7 +303,9 @@ export default function EncounterPage() {
 
               <div className="pt-2">
                 <h3 className="text-sm font-medium text-stone-400 mb-3">
-                  Choose a narrative mode to hear {organism.commonName} speak:
+                  {trailMode
+                    ? `Hear ${organism.commonName} speak:`
+                    : `Choose a narrative mode to hear ${organism.commonName} speak:`}
                 </h3>
                 <NarrativePlayer
                   organism={organism}
@@ -218,6 +316,44 @@ export default function EncounterPage() {
                 />
               </div>
             </>
+          )}
+
+          {/* Trail history */}
+          {trailMode && trailHistory.length > 1 && (
+            <div className="pt-4 space-y-3">
+              <h4 className="text-xs font-medium text-stone-600 uppercase tracking-wider">
+                Trail Log
+              </h4>
+              <div className="space-y-2">
+                {trailHistory.slice(1).map((entry, index) => (
+                  <button
+                    key={index}
+                    onClick={() => {
+                      setOrganism(entry.organism);
+                      setCapturedImage(entry.image);
+                      setScript(null);
+                      setPhase("identified");
+                    }}
+                    className="w-full flex items-center gap-3 p-2 rounded-lg bg-stone-800/30 border border-stone-700/20 hover:bg-stone-800/50 transition-colors text-left"
+                  >
+                    <img
+                      src={entry.image}
+                      alt={entry.organism.commonName}
+                      className="w-10 h-10 rounded-lg object-cover"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-stone-300 truncate">
+                        {entry.organism.commonName}
+                      </p>
+                      <p className="text-xs text-stone-600">
+                        {entry.timestamp}
+                      </p>
+                    </div>
+                    <OrganismCard organism={entry.organism} compact />
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>

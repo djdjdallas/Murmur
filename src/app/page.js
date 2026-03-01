@@ -109,11 +109,58 @@ export default function HomePage() {
             ))}
           </div>
         </div>
+
+        {/* Live API + Imagen features */}
+        <div className="pt-2 space-y-3">
+          <p className="text-xs text-stone-600 uppercase tracking-wider font-medium">
+            Powered by
+          </p>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-stone-900/50 border border-stone-800/50 text-left">
+              <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                </svg>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-stone-300">Gemini Live API</div>
+                <div className="text-xs text-stone-500">Real-time streaming audio narration</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-stone-900/50 border border-stone-800/50 text-left">
+              <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-violet-400">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-stone-300">Imagen 3</div>
+                <div className="text-xs text-stone-500">Watercolor illustrated story panels</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-stone-900/50 border border-stone-800/50 text-left">
+              <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-stone-300">Trail Mode</div>
+                <div className="text-xs text-stone-500">Persistent live session as you walk</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Footer */}
       <footer className="mt-12 text-xs text-stone-700">
-        Built with Gemini 2.0 Flash for the Gemini Live Agent Challenge
+        Built with Gemini Live API + Imagen 3 for the Gemini Live Agent Challenge
       </footer>
     </main>
   );
