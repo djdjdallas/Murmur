@@ -100,6 +100,18 @@ export default function Camera({ onCapture, disabled }) {
       />
       <canvas ref={canvasRef} className="hidden" />
 
+      {/* Hint text overlay — inside camera, above controls */}
+      {cameraReady && (
+        <div className="absolute bottom-24 left-0 right-0 text-center pointer-events-none z-10">
+          <p className="text-white/70 text-sm drop-shadow-lg">
+            Point your camera at a plant, tree, bird, insect, or mushroom
+          </p>
+          <p className="text-white/50 text-xs mt-1 drop-shadow-lg">
+            Tap the green button to capture
+          </p>
+        </div>
+      )}
+
       {/* Camera controls overlay */}
       <div className="absolute bottom-6 left-0 right-0 z-20 flex items-center justify-center gap-6">
         {/* Flip camera button */}

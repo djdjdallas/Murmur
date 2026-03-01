@@ -35,10 +35,10 @@ export default function NarrativePlayer({
   script = null,
   voiceProfile = null,
 }) {
-  const [activeMode, setActiveMode] = useState(null);
+  const [activeMode, setActiveMode] = useState("trail");
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState(null);
-  const [useLiveApi, setUseLiveApi] = useState(true);
+  const [useLiveApi, setUseLiveApi] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const utteranceRef = useRef(null);
 

@@ -56,7 +56,7 @@ export default function EncounterPage() {
 
         setOrganism(data.organism);
 
-        // In trail mode, add to history and auto-narrate
+        // In trail mode, add to history
         if (trailMode) {
           setTrailHistory((prev) => [
             {
@@ -66,9 +66,26 @@ export default function EncounterPage() {
             },
             ...prev,
           ]);
-          setPhase("narrating");
-        } else {
-          setPhase("identified");
+        }
+
+        // Auto-start narration with "trail" mode to reduce friction
+        setPhase("narrating");
+        setNarrateLoading(true);
+        try {
+          const narrateRes = await fetch("/api/narrate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ organism: data.organism, mode: "trail" }),
+          });
+          const narrateData = await narrateRes.json();
+          if (narrateRes.ok) {
+            setScript(narrateData.script);
+            setVoiceProfile(narrateData.persona);
+          }
+        } catch (narrateErr) {
+          console.error("Auto-narration failed:", narrateErr);
+        } finally {
+          setNarrateLoading(false);
         }
       } catch (err) {
         console.error("Identification failed:", err);
@@ -267,18 +284,6 @@ export default function EncounterPage() {
             </div>
           )}
 
-          {/* Camera phase instructions */}
-          {phase === "camera" && !identifyError && (
-            <div className="text-center py-8 pointer-events-none">
-              <p className="text-stone-400 text-sm">
-                Point your camera at a plant, tree, bird, insect, or mushroom
-              </p>
-              <p className="text-stone-600 text-xs mt-2">
-                Tap the green button to capture
-              </p>
-            </div>
-          )}
-
           {/* Trail Mode ready state */}
           {phase === "trail-ready" && !identifyError && (
             <div className="text-center py-6 space-y-3">
@@ -304,9 +309,7 @@ export default function EncounterPage() {
 
               <div className="pt-2">
                 <h3 className="text-sm font-medium text-stone-400 mb-3">
-                  {trailMode
-                    ? `Hear ${organism.commonName} speak:`
-                    : `Choose a narrative mode to hear ${organism.commonName} speak:`}
+                  Hear {organism.commonName} speak:
                 </h3>
                 <NarrativePlayer
                   organism={organism}
