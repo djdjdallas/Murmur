@@ -106,6 +106,7 @@ export default function EncounterPage() {
         setPhase("narrating");
       } catch (err) {
         console.error("Narration failed:", err);
+        setIdentifyError(err.message || "Narration failed. Please try again.");
       } finally {
         setNarrateLoading(false);
       }
