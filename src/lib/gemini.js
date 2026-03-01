@@ -17,5 +17,5 @@ function getClient() {
  * Get the Gemini 2.0 Flash model for vision and text tasks.
  */
 export function getModel() {
-  return getClient().getGenerativeModel({ model: "gemini-2.0-flash" });
+  return getClient().getGenerativeModel({ model: "gemini-2.5-flash" });
 }

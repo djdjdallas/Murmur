@@ -27,7 +27,7 @@ export async function POST(request) {
     const genAI = new GoogleGenerativeAI(apiKey);
 
     // Use Gemini to extract 3 scene descriptions from the script
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const sceneResult = await model.generateContent(
       `Given this first-person narration from a ${organism.commonName} (${organism.category}), extract exactly 3 key visual moments that would make beautiful illustrated panels.
@@ -56,9 +56,9 @@ Example format:
       ];
     }
 
-    // Generate images using native image generation via gemini-2.0-flash-exp
+    // Generate images using native image generation via Gemini 2.5 Flash Image
     const imagenModel = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-exp",
+      model: "gemini-2.5-flash-image",
       generationConfig: {
         responseModalities: ["TEXT", "IMAGE"],
       },

@@ -269,7 +269,7 @@ export function useGeminiLive() {
       setTranscript("");
       setIsConnected(false);
 
-      const modelId = model || "gemini-2.0-flash-exp";
+      const modelId = model || "gemini-2.5-flash-native-audio-preview-12-2025";
       const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
       return new Promise((resolve, reject) => {

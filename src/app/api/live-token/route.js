@@ -43,7 +43,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       apiKey,
-      model: "gemini-2.0-flash-exp",
+      model: "gemini-2.5-flash-native-audio-preview-12-2025",
       voiceName,
       persona: {
         name: persona.name,
